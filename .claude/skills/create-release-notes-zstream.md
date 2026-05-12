@@ -14,45 +14,43 @@ This skill creates a placeholder release notes file for OpenShift Virtualization
 
 ## Process Overview
 
-This skill automates the creation of a z-stream placeholder release notes file by:
+This skill creates TWO pull requests for z-stream releases:
 
-1. Locating the openshift-docs repository on the local machine
-2. Reading current version numbers from `_attributes/common-attributes.adoc`
-3. Incrementing the z-stream version number (e.g., 4.22 → 4.22.1)
-4. Creating a PR against the `upstream/enterprise-X.XX` branch with:
-   - Updated version attributes for z-stream
-   - New placeholder release notes file
+**PR#1 (main branch)**:
+- Dummy release notes file for builds
+- Updated version attributes
+
+**PR#2 (enterprise branch)**:
+- Placeholder release notes file (copies dummy from PR#1)
+- No attribute changes
+
+**Automatic Trigger**: PR#2 is automatically created once PR#1 is merged (manual merge required)
 
 ## Step-by-Step Process
+
+### Part 1: Create PR#1 (main branch)
 
 **Step 1: Locate openshift-docs repository**
 - Search for the repository in common locations or prompt user for path
 
 **Step 2: Read and increment version numbers for z-stream**
-- Read from `_attributes/common-attributes.adoc`:
+- Read from `_attributes/common-attributes.adoc` on main:
   - `:VirtVersion:` (e.g., 4.22 → 4.22.1 or 4.22.1 → 4.22.2)
   - `:HCOVersion:` (e.g., 4.22.0 → 4.22.1 or 4.22.1 → 4.22.2)
   - `:HCOVersionPrev:` (e.g., 4.21.0 → 4.22.0 or 4.22.0 → 4.22.1)
 
-**Step 3: Create feature branch**
-- Checkout `upstream/enterprise-X.XX` (using major.minor version number)
-- Create branch: `virt-X-XX-Z-release-notes-placeholder` (e.g., `virt-4-22-1-release-notes-placeholder`)
+**Step 3: Create PR#1 branch off main**
+- Checkout `upstream/main`
+- Create branch: `virt-X-XX-Z-attributes-update` (e.g., `virt-4-22-1-attributes-update`)
 
-**Step 4: Update attributes in enterprise branch**
-- Update `_attributes/common-attributes.adoc` with new z-stream version numbers
-
-**Step 5: Create placeholder file**
-- Create file: `virt/release_notes/virt-X-XX-Z-release-notes.adoc` (e.g., `virt-4-22-1-release-notes.adoc`)
-- Add template content:
+**Step 4: Create dummy file and update attributes**
+- Create `virt/release_notes/virt-X-XX-Z-release-notes.adoc` with dummy content:
 ```
 :_mod-docs-content-type: ASSEMBLY
-include::_attributes/common-attributes.adoc[]
 [id="virt-X-XX-Z-release-notes"]
 = {VirtProductName} release notes
+include::_attributes/common-attributes.adoc[]
 :context: virt-X-XX-Z-release-notes
-
-[role="_abstract"]
-These release notes describe new features and enhancements, Technology Preview features, deprecated and removed features, fixed issues, and known issues for {VirtProductName} {VirtVersion}.
 
 toc::[]
 
@@ -61,24 +59,79 @@ that they are relevant for.
 
 This file is here to allow builds to work.
 ```
+- Update `_attributes/common-attributes.adoc` with new version numbers
 
-**Step 6: Commit and create PR**
-- Commit changes
+**Step 5: Commit and create PR#1**
+- Commit both files
 - Push to fork
-- Create PR against `upstream/enterprise-X.XX`
+- Create PR against `upstream/main`
+- PR description notes that PR#2 will follow after merge
+
+### Part 2: Automatic PR#2 Creation (triggered on PR#1 merge)
+
+**Trigger Setup**: A GitHub Actions workflow monitors PR#1 merge
+
+**Step 6: Auto-create PR#2 branch off enterprise branch**
+- On PR#1 merge event, checkout `upstream/enterprise-X.XX`
+- Create branch: `virt-X-XX-Z-release-notes-placeholder` (e.g., `virt-4-22-1-release-notes-placeholder`)
+
+**Step 7: Copy dummy file from merged PR#1**
+- Copy `virt/release_notes/virt-X-XX-Z-release-notes.adoc` from main
+- Do NOT copy attribute changes
+
+**Step 8: Commit and auto-create PR#2**
+- Commit the release notes file only
+- Push to fork
+- Auto-create PR against `upstream/enterprise-X.XX`
+- PR references PR#1 in description
+
+## Automatic Trigger Configuration
+
+The skill sets up a trigger to automatically create PR#2 once PR#1 is merged. This can be implemented via:
+
+### Option 1: GitHub Actions Workflow (Recommended)
+Create a workflow in the openshift-docs repo that:
+- Triggers on `pull_request` events with `closed` action
+- Checks if merged PR matches pattern `virt-*-attributes-update`
+- Extracts version from PR branch name
+- Creates PR#2 to enterprise branch with copied release notes file
+
+See `examples/virt-release-notes-trigger.yml` for workflow template.
+
+### Option 2: Claude Code Hook
+Configure a hook in `.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "on-pr-merge": {
+      "pattern": "virt-*-attributes-update",
+      "action": "create-release-notes-pr2"
+    }
+  }
+}
+```
+
+**Important**: PR merges must always be done manually by a human writer. The trigger only automates PR#2 creation, not the merge itself.
 
 ## Differences from Major/Minor Release Placeholder
 
+- Creates TWO PRs instead of one
+- PR#1 (main): dummy file + attributes
+- PR#2 (enterprise): placeholder file only (no attributes)
 - Version increments are z-stream (patch level): 4.22 → 4.22.1, not 4.21 → 4.22
-- HCOVersion loses the trailing .0: 4.22.0 → 4.22.1 (not 4.22.1)
+- HCOVersion format: 4.22.0 → 4.22.1
 - File names use dashes for all version components: `virt-4-22-1-release-notes.adoc`
-- Branch follows same pattern: `virt-4-22-1-release-notes-placeholder`
+- Branch naming:
+  - PR#1: `virt-4-22-1-attributes-update`
+  - PR#2: `virt-4-22-1-release-notes-placeholder`
 
 ## Notes
 
-- This skill creates the z-stream placeholder PR
+- This skill creates TWO PRs: one for main (with attributes), one for enterprise (placeholder only)
 - Z-stream releases are patch releases within an existing major.minor version
 - The enterprise branch number stays the same (e.g., enterprise-4.22 for both 4.22.0 and 4.22.1)
+- PR#2 is auto-created after PR#1 is manually merged by a writer
+- **Never automate the PR merge** - always requires human review and manual merge
 
 ## Usage
 
